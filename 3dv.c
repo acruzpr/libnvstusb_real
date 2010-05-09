@@ -6,11 +6,12 @@
  * */
 
 #include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+
 #include "nvstusb.h"
 
 #include <GL/glut.h>
-
-#include <stdio.h>
 
 #include <IL/il.h>
 #include <IL/ilu.h>
@@ -98,6 +99,12 @@ int main(int argc, char **argv) {
   glutInitDisplayMode(GLUT_RGB|GLUT_DOUBLE);
   
   ctx = nvstusb_init(glutSwapBuffers);
+
+  if (0 == ctx) {
+    fprintf(stderr, "could not initialize NVIDIA 3D Stereo Controller, aborting\n");
+    exit(EXIT_FAILURE);
+  }
+
   nvstusb_set_rate(ctx, 120);
   
   if (argc > 1) {
@@ -138,5 +145,5 @@ int main(int argc, char **argv) {
     glutMainLoop();
   }
   nvstusb_deinit(ctx);
-  return 0;
+  return EXIT_SUCCESS;
 }

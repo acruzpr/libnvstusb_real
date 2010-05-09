@@ -1,6 +1,6 @@
 #vim:noet
 
-CFLAGS=-I/usr/include/libusb-1.0
+CFLAGS=-I/usr/include/libusb-1.0 -ggdb
 LDFLAGS=-lusb-1.0 -lglut -lnvstusb -L. -lIL -lILUT 
 
 all: extractfw libnvstusb.a 3dv
@@ -15,4 +15,4 @@ nvstusb.o: nvstusb.c
 	gcc $(CFLAGS) -c nvstusb.c -o nvstusb.o
 
 3dv: 3dv.c libnvstusb.a
-	gcc main.c $(LDFLAGS) -o 3dv
+	gcc $^ $(LDFLAGS) -o $@

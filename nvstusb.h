@@ -14,6 +14,7 @@ enum nvstusb_eye {
 
 struct nvstusb_keys {
   char deltaWheel;
+  char pressedDeltaWheel;
   int  toggled3D;
 };
 

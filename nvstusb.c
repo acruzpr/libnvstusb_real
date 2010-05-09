@@ -11,6 +11,7 @@
 #include <string.h>
 #include <malloc.h>
 #include <time.h>
+#include <assert.h>
 #include <libusb.h>
 
 #include <GL/gl.h>
@@ -39,9 +40,9 @@ static PFNGLXSWAPINTERVALSGIPROC glXSwapInterval = 0;
 #define NVSTUSB_CONST_Y     (0.482100)  /* ? */
 #endif
 
-#define NVSTUSB_CMD_1           (0x01)
-#define NVSTUSB_CMD_GETSTATUS   (0x02)
-#define NVSTUSB_CMD_CLEAR       (0x40)
+#define NVSTUSB_CMD_WRITE       (0x01)  /* write data */
+#define NVSTUSB_CMD_READ        (0x02)  /* read data */
+#define NVSTUSB_CMD_CLEAR       (0x40)  /* set data to 0 */
 
 /* state of the controller */
 struct nvstusb_context {
@@ -121,6 +122,7 @@ nvstusb_write_usb_bulk(
   int size
 ) {
   int sent = 0;
+  assert(handle != 0);
   return libusb_bulk_transfer(handle, endpoint | LIBUSB_ENDPOINT_OUT, data, size, &sent, 0);
 }
 
@@ -133,6 +135,7 @@ nvstusb_write_usb_interrupt(
   int size
 ) {
   int sent = 0;
+  assert(handle != 0);
   return libusb_interrupt_transfer(handle, endpoint | LIBUSB_ENDPOINT_OUT, data, size, &sent, 0);
 }
 
@@ -145,16 +148,11 @@ nvstusb_read_usb(
   int size
 ) {
   int recvd = 0;
-  int res = libusb_bulk_transfer(handle, endpoint | LIBUSB_ENDPOINT_IN,  data, size, &recvd, 0);
-  /*
-  int i;
-  fprintf(stderr, "tmpRes = %d\n", recvd); 
-  for (i = 0; i<recvd; i++) {
-    fprintf(stderr, " %02x", ((unsigned char*)data)[i]);
-  }
-  fprintf(stderr, "\n");
-
-  if (res < 0) return res;*/
+  int res;
+  
+  assert(handle != 0);
+  
+  res = libusb_bulk_transfer(handle, endpoint | LIBUSB_ENDPOINT_IN,  data, size, &recvd, 0);
   return recvd;
 }
 
@@ -164,6 +162,8 @@ nvstusb_load_firmware(
   struct libusb_device_handle *handle,
   const char *filename
 ) {
+  assert(handle != 0);
+
   FILE *fw = fopen(filename, "rb");
   if (!fw) { perror(filename); return LIBUSB_ERROR_OTHER; }
   
@@ -204,8 +204,10 @@ static int
 nvstusb_get_numendpoints(
   struct libusb_device_handle *handle
 ) {
+  assert(handle != 0);
+
   struct libusb_device *dev = libusb_get_device(handle);
-  struct libusb_config_descriptor *cfgDesc;
+  struct libusb_config_descriptor *cfgDesc = 0;
   int res = libusb_get_active_config_descriptor(dev, &cfgDesc);
   if (res < 0) {
     fprintf(stderr, "nvstusb: Could not determine the number of endpoints... Error %d: %s\n", res, libusb_error_to_string(res));
@@ -223,6 +225,8 @@ static struct libusb_device_handle *
 nvstusb_open_device(
   struct libusb_context *ctx
 ) {
+  assert(ctx != 0);
+
   int res;
   struct libusb_device_handle *handle = 
     libusb_open_device_with_vid_pid(ctx, 0x0955, 0x0007);
@@ -246,7 +250,7 @@ nvstusb_open_device(
     res = nvstusb_load_firmware(handle, "nvstusb.fw");
     libusb_reset_device(handle);
     libusb_close(handle);
-    if (res < 0) {
+    if (res != 0) {
       return 0;
     }
     handle = 0;
@@ -357,7 +361,9 @@ nvstusb_set_rate(
   struct nvstusb_context *ctx,
   int rate
 ) {
-  if (0 == ctx || 0 == ctx->handle) return;
+  assert(ctx != 0);
+  assert(ctx->handle != 0);
+  assert(rate > 60);
   
   /* send some magic data to device, this function is mainly black magic */
 
@@ -368,77 +374,67 @@ nvstusb_set_rate(
   uint32_t y = t * NVSTUSB_CONST_DARK;
   uint32_t z = t * NVSTUSB_CONST_Y;
   
-  fprintf(stderr, "nvstusb: %08x %08x %08x %08x %08x\n", t,w,x,y,z);
+  // fprintf(stderr, "nvstusb: %08x %08x %08x %08x %08x\n", t,w,x,y,z);
   
   uint8_t cmdTimings[] = { 
-    0x03,                   /* set? */
-    0x00,                   /* 0 == timings? */
+    NVSTUSB_CMD_WRITE,      /* write data */
+    0x00,                   /* to address 0x2007 (0x2007+0x00) = ?? */
     0x18, 0x00,             /* 24 bytes follow */
 
-    w, w>>8, ~w>>16, ~w>>24, 
-    x, x>>8, ~x>>16, ~x>>24, 
-    y, y>>8, ~y>>16, ~y>>24, 
-    0x30, 0x28, 0x24, 0x22,
-    0x0a, 0x08, 0x05, 0x04,
-    z, z>>8, ~z>>16, ~z>>24
+    w, w>>8, ~w>>16, ~w>>24,  /* 2007: ?? */ 
+    x, x>>8, ~x>>16, ~x>>24,  /* 200b: ?? */
+    y, y>>8, ~y>>16, ~y>>24,  /* 200f: ?? */
+    0x30, 0x28, 0x24, 0x22,   /* 2013: ?? */
+    0x0a, 0x08, 0x05, 0x04,   /* 2017: ?? */
+    z, z>>8,                  /* 201b: timer 2 reload value */
+    ~z>>16, ~z>>24            /* 201d: stored at 0x67, 0x68*/
   }; 
   nvstusb_write_usb_bulk(ctx->handle, 2, cmdTimings, sizeof(cmdTimings));
 
-  uint8_t tmp[64];
-  int tmpRes = nvstusb_read_usb(ctx->handle, 4, tmp, 64);
-
+  /* timer 2 reload value in the snoop was 0x7961 = 31073
+   * if i understand the trm correctly, timer 2 is clocked by T2 pin at an unknown rate.
+   * when there is a high to low transition on T2EX, the current timer 
+   * value is saved to or loaded from RCAP2H/L depending on CPRL2 and
+   * a timer interrupt is issued.
+   * */
 
   uint8_t cmd0x1c[] = {
-    0x01,                   /* set? */
-    0x1c,                   /* 28 == ?? */
+    NVSTUSB_CMD_WRITE,      /* write data */
+    0x1c,                   /* to address 0x2023 (0x2007+0x1c) = ?? */
     0x02, 0x00,             /* 2 bytes follow */
     
-    0x02, 0x00              /* ?? */
+    0x02, 0x00              /* ?? seems to be the start value of some 
+                               counter. runs up to 6, some things happen
+                               when it is lower, that will stop if when
+                               it reaches 6 */
   };
   nvstusb_write_usb_bulk(ctx->handle, 2, cmd0x1c, sizeof(cmd0x1c));
     
   uint8_t cmdRate[] = {
-    0x01,                   /* set? */
-    0x1e,                   /* 30 == rate */
+    NVSTUSB_CMD_WRITE,      /* write data */
+    0x1e,                   /* to address 0x2025 (0x2007+0x1e) = rate? */
     0x02, 0x00,             /* 2 bytes follow */
 
     rate<<1, rate>>7        /* rate * 2 */
+    /* if the word at 0x5f, 0x60 becomes greater than this value+20
+     * all timers are stopped. otherwise pin 2 of port d will be toggled
+     * and pin 2 of port c will be set to high if the word is larger 
+     * than 20 and the word will be increased by one. this happens
+     * every time timer2 overflows. */
   };
   nvstusb_write_usb_bulk(ctx->handle, 2, cmdRate, sizeof(cmdRate));
 
   uint8_t cmd0x1b[] = {
-    0x01,                   /* set? */
-    0x1b,                   /* 29 == ?? */
+    NVSTUSB_CMD_WRITE,      /* write data */
+    0x1b,                   /* to address 0x2022 (0x2007+0x1b) = ?? */
     0x01, 0x00,             /* 1 byte follows */
     
-    0x07                    /* ?? */
+    0x07                    /* ?? seems to be the start value of some 
+                               counter */
   };
   nvstusb_write_usb_bulk(ctx->handle, 2, cmd0x1b, sizeof(cmd0x1b));
     
   ctx->rate = rate;
-}
-
-static inline void
-nvstusb_diff_timespec(
-  const struct timespec *a,
-  const struct timespec *b,
-  struct timespec *c
-) {
-  c->tv_sec = a->tv_sec - b->tv_sec;
-  if (a->tv_nsec < b->tv_nsec) {
-    c->tv_nsec = a->tv_nsec + 1000000000L - b->tv_nsec;
-    c->tv_sec--;
-  } else {
-    c->tv_nsec = a->tv_nsec - b->tv_nsec;
-  }
-}
-
-static uint64_t
-nvstusb_get_ticks(
-) {
-  struct timeval tv;
-  gettimeofday(&tv, 0);
-  return tv.tv_sec*1000000 + tv.tv_usec;
 }
 
 /* set currently open eye */
@@ -446,26 +442,33 @@ static void
 nvstusb_set_eye(
   struct nvstusb_context *ctx,
   enum nvstusb_eye eye,
-  uint32_t r
+  uint16_t r
 ) {
-  if (0 == ctx || 0 == ctx->handle) return;
+  assert(ctx != 0);
+  assert(ctx->handle != 0);
+  assert(eye == nvstusb_left || eye == nvstusb_right);
 
   uint8_t buf[8] = { 
     0xAA, (eye%2)?0xFE:0xFF,  /* set shutter state */
     0x00, 0x00,               /* unused? */
-    r, r>>8, ~r>>16, ~r>>24
+    r, r>>8, 0xFF, 0xFF       /* still a mystery */
   };
   nvstusb_write_usb_bulk(ctx->handle, 1, buf, 8);
 }
 
+/* perform swap and toggle eyes hopefully with correct timing */
 void
 nvstusb_swap(
   struct nvstusb_context *ctx,
   enum nvstusb_eye eye
 ) {
-  if (0 == ctx || 0 == ctx->handle) return;
+  assert(ctx != 0);
+  assert(ctx->handle != 0);
+  assert(eye == nvstusb_left || eye == nvstusb_right);
 
   if (0 != glXGetVideoSyncSGI) {
+    /* if we have the GLX_SGI_video_sync extension, we just wait
+     * for vertical blanking, then issue swap. */
     unsigned int count;
     glXGetVideoSyncSGI(&count);
     glXWaitVideoSyncSGI(2, (count+1)%2, &count);
@@ -474,12 +477,13 @@ nvstusb_swap(
     return;
   }
 
-  uint8_t pixels[4] = { 255, 0, 255, 255 };
+  /* otherwise issue buffer swap, then read from front buffer.
+   * this operation can only finish after swapping is complete. 
+   * (seems like it won't work if page flipping is disabled) */
  
   ctx->swap();
 
-  /* read from front buffer, this operation can only finish after 
-   * swapping is complete. (won't work if page flipping is disabled) */
+  uint8_t pixels[4] = { 255, 0, 255, 255 };
   glReadBuffer(GL_FRONT);
   glReadPixels(1,1,1,1,GL_RGB, GL_UNSIGNED_BYTE, pixels);
   nvstusb_set_eye(ctx, eye, 0);
@@ -491,15 +495,41 @@ nvstusb_get_keys(
   struct nvstusb_context *ctx,
   struct nvstusb_keys *keys
 ) {
+  assert(ctx  != 0);
+  assert(keys != 0);
+
   uint8_t cmd1[] = { 
-    NVSTUSB_CMD_GETSTATUS | NVSTUSB_CMD_CLEAR,
-    0x18, 0x03, 0x00 };
+    NVSTUSB_CMD_READ |      /* read and clear data */
+    NVSTUSB_CMD_CLEAR,
+
+    0x18,                   /* from address 0x201F (0x2007+0x18) = status? */
+    0x03, 0x00              /* read/clear 3 bytes */
+  };
   nvstusb_write_usb_bulk(ctx->handle, 2, cmd1, sizeof(cmd1));
 
-  uint8_t readBuf[7];
+  uint8_t readBuf[4+cmd1[2]];
   nvstusb_read_usb(ctx->handle, 4, readBuf, sizeof(readBuf));
 
+  /* readBuf[0] contains the offset (0x18),
+   * readBuf[1] contains the number of read bytes (0x03),
+   * readBuf[2] (msb) and readBuf[3] (lsb) of the bytes sent (sizeof(cmd1)) 
+   * readBuf[4] and following contain the requested data */
+
+  /* from address 0x201F:
+   * signed 8 bit integer: amount the wheel was turned without the button pressed
+   */
   keys->deltaWheel = readBuf[4];
-  keys->toggled3D  = readBuf[6] & 0x01;
+  
+  /* from address 0x2020:
+   * signed 8 bit integer: amount the wheel was turned with the button pressed
+   */
+  keys->pressedDeltaWheel = readBuf[5];
+  
+  /* from address 0x2021:
+   * bit 0: front button was pressed since last time (presumably fom pin 4 on port C)
+   * bit 1: logic state of pin 7 on port E
+   * bit 2: logic state of pin 2 on port C
+   */
+  keys->toggled3D  = readBuf[6] & 0x01;     
 }
 
