@@ -10,27 +10,17 @@
 #include <errno.h>
 #include <string.h>
 #include <malloc.h>
-#include <libusb.h>
 #include <time.h>
+#include <libusb.h>
 
 #include <GL/gl.h>
 #include <GL/glx.h>
-
-#ifndef _WIN32
-#include <GL/glx.h>
 #include <GL/glxext.h>
+#include "nvstusb.h"
 
 static PFNGLXGETVIDEOSYNCSGIPROC glXGetVideoSyncSGI = 0;
 static PFNGLXWAITVIDEOSYNCSGIPROC glXWaitVideoSyncSGI = 0;
-
-static PFNGLXSWAPINTERVALSGIPROC xSwapInterval = 0;
-#else
-static PFNWGLSWAPINTERVALEXTPROC xSwapInterval = 0;
-#endif
-
-
-
-#include "nvstusb.h"
+static PFNGLXSWAPINTERVALSGIPROC glXSwapInterval = 0;
 
 #define NVSTUSB_CLOCK 24000000LL
 #define NVSTUSB_CONST_ORIGINAL 0
@@ -320,8 +310,7 @@ nvstusb_init(
   ctx->usbctx = usbctx;
   ctx->handle = handle;
   ctx->swap = swapfunc;
-
-#ifndef _WIN32
+  
   glXGetVideoSyncSGI = (PFNGLXGETVIDEOSYNCSGIPROC)glXGetProcAddress("glXGetVideoSyncSGI");
   glXWaitVideoSyncSGI = (PFNGLXWAITVIDEOSYNCSGIPROC)glXGetProcAddress("glXWaitVideoSyncSGI");
   if (0 == glXWaitVideoSyncSGI) {
@@ -332,14 +321,11 @@ nvstusb_init(
     fprintf(stderr, "nvstusb: GLX_SGI_video_sync supported!\n");
   }
 
-  xSwapInterval = (PFNGLXSWAPINTERVALSGIPROC)glXGetProcAddress("glXSwapIntervalSGI");
-#else
-  xSwapInterval = (PFNWGLSWAPINTERVALEXTPROC)wglGetProcAddress("wglSwapIntervalEXT");
-#endif
+  glXSwapInterval = (PFNGLXSWAPINTERVALSGIPROC)glXGetProcAddress("glXSwapIntervalSGI");
 
-  if (0 != xSwapInterval) {
+  if (0 != glXSwapInterval) {
     fprintf(stderr, "nvstusb: forcing vsync\n");
-    xSwapInterval(1);
+    glXSwapInterval(1);
   }
 
   return ctx;
@@ -479,7 +465,6 @@ nvstusb_swap(
 ) {
   if (0 == ctx || 0 == ctx->handle) return;
 
-#ifndef _WIN32
   if (0 != glXGetVideoSyncSGI) {
     unsigned int count;
     glXGetVideoSyncSGI(&count);
@@ -488,7 +473,6 @@ nvstusb_swap(
     ctx->swap();
     return;
   }
-#endif
 
   uint8_t pixels[4] = { 255, 0, 255, 255 };
  
