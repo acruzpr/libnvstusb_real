@@ -23,8 +23,7 @@ static FILE *      files[3]     = {  0, 0, 0 };
 
 /* look for these bytes in the driver file to find the firmware */
 static unsigned char firmwareSignature[8] = {
-  0xC2, 0x55, 0x09, 0x07, 
-  0x00, 0x00, 0x00, 0x00
+  0xC2, 0x55, 0x09, 0x07, 0x00, 0x00, 0x00, 0x00
 };
 
 /* print an error, clean up and exit */
@@ -215,16 +214,18 @@ findFirmware(
 ) {
   size_t dataSectionSize   = 0;
   size_t dataSectionOffset = findDataSection(fileIndex, &dataSectionSize);
+  size_t offset;
   
-  unsigned char buf[8];
-  readFileAt(fileIndex, dataSectionOffset + 0x30, buf, 8);
+  for (offset = 0; offset < dataSectionSize; offset++) {
+    unsigned char buf[8];
+    readFileAt(fileIndex, dataSectionOffset + offset, buf, 8);
 
-  if (0 == memcmp(buf, firmwareSignature, 8)) {
-    size_t fwOffset = dataSectionOffset + 0x38;
-    fprintf(stderr, "probably found firmware at %08x\n\n", fwOffset);
-    return fwOffset;
+    if (0 == memcmp(buf, firmwareSignature, 8)) {
+      size_t fwOffset = dataSectionOffset + offset + 8;
+      fprintf(stderr, "probably found firmware %d bytes into .data section at %08x\n\n", offset, fwOffset);
+      return fwOffset;
+    }
   }
-
   error(fileIndex, "could not find firmware in .data section");
   return 0;
 }
