@@ -25,6 +25,8 @@ int eye = 0;
 float depth = 0.0;
 int inverteyes = 1;
 
+extern float nvstusb_x;
+
 void draw() {
   glClearColor(0.0, 0.0, 0.0, 1.0);
   glClear(GL_COLOR_BUFFER_BIT);
@@ -59,7 +61,13 @@ void draw() {
     inverteyes = !inverteyes;
   }
 
-  depth += 0.01 * k.deltaWheel;
+  if (k.deltaWheel) {
+    depth += 0.01 * k.deltaWheel;
+
+    nvstusb_x += 0.1 * k.deltaWheel;
+    printf("%f\n", nvstusb_x);
+    nvstusb_set_rate(ctx, 120);
+  }
 }
 
 void drawNoImage() {
@@ -90,7 +98,9 @@ void drawNoImage() {
     inverteyes = !inverteyes;
   }
 
-  depth += 0.01 * k.deltaWheel;
+  if (k.deltaWheel) {
+    depth += 0.01 * k.deltaWheel;
+  }
 }
 
 int main(int argc, char **argv) {

@@ -8,11 +8,11 @@ all: extractfw libnvstusb.a 3dv
 extractfw: extractfw.c
 	gcc extractfw.c -o extractfw
 
-libnvstusb.a: nvstusb.o
-	ar rsv libnvstusb.a nvstusb.o
+libnvstusb.a: nvstusb.o usb_libusb.o
+	ar rsv libnvstusb.a $^
 
-nvstusb.o: nvstusb.c
-	gcc $(CFLAGS) -c nvstusb.c -o nvstusb.o
+%.o: %.c
+	gcc $(CFLAGS) -c $< -o $@
 
 3dv: 3dv.c libnvstusb.a
 	gcc $^ $(LDFLAGS) -o $@
