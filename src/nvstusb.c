@@ -7,6 +7,7 @@
 
 #include <stdio.h>
 #include <stdint.h>
+#include <stdlib.h>
 #include <errno.h>
 #include <string.h>
 #include <malloc.h>
@@ -57,6 +58,9 @@ struct nvstusb_context {
 
   /* Toggled state */
   int toggled3D;
+
+  /* Vblank method */
+  int vblank_method;
 };
 
 /* initialize controller */
@@ -82,11 +86,25 @@ nvstusb_init(void)
   ctx->rate = 0.0;
   ctx->eye = 0;
   ctx->device = dev;
+
+
+  /* Vblank init */
+  /* NVIDIA VBlank syncing environment variable defined, signal it and disable
+  * any attempt to application side method */
+  if (getenv ("__GL_SYNC_TO_VBLANK"))
+  {
+    fprintf (stderr, "__GL_SYNC_TO_VBLANK defined in environment\n");
+    ctx->vblank_method = 2;
+    goto out_err;
+  }
   
   glXGetVideoSyncSGI = (PFNGLXGETVIDEOSYNCSGIPROC)glXGetProcAddress("glXGetVideoSyncSGI");
   glXWaitVideoSyncSGI = (PFNGLXWAITVIDEOSYNCSGIPROC)glXGetProcAddress("glXWaitVideoSyncSGI");
   if (NULL == glXWaitVideoSyncSGI) {
     glXGetVideoSyncSGI = 0;
+    ctx->vblank_method = 0;
+  } else {
+    ctx->vblank_method = 1;
   }
 
   if (NULL != glXGetVideoSyncSGI ) {
@@ -100,6 +118,7 @@ nvstusb_init(void)
     glXSwapInterval(1);
   }
 
+out_err:
   return ctx;
 }
 
@@ -309,9 +328,9 @@ nvstusb_swap(
   assert(ctx->device != 0);
   assert(eye == nvstusb_left || eye == nvstusb_right);
 
-  if (NULL != glXGetVideoSyncSGI) {
-    /* if we have the GLX_SGI_video_sync extension, we just wait
-     * for vertical blanking, then issue swap. */
+  /* if we have the GLX_SGI_video_sync extension, we just wait
+  * for vertical blanking, then issue swap. */
+  if (ctx->vblank_method == 1) {
     unsigned int count;
 
     /* Waiting OpenGL sync */
@@ -320,21 +339,26 @@ nvstusb_swap(
 
     /* Change eye */
     nvstusb_set_eye(ctx, eye);
-
-    swapfunc();
-    return;
   }
 
-  /* otherwise issue buffer swap, then read from front buffer.
-   * this operation can only finish after swapping is complete. 
-   * (seems like it won't work if page flipping is disabled) */
- 
+  /* case __GL_SYNC_TO_VBLANK is defined */
+  if(ctx->vblank_method == 2) {
+    /* Change eye */
+    nvstusb_set_eye(ctx, eye);
+  }
+
+  /* Swap buffers */
   swapfunc();
 
-  uint8_t pixels[4] = { 255, 0, 255, 255 };
-  glReadBuffer(GL_FRONT);
-  glReadPixels(1,1,1,1,GL_RGB, GL_UNSIGNED_BYTE, pixels);
-  nvstusb_set_eye(ctx, eye);
+  /* Sw Vsync method: read from front buffer.
+   * this operation can only finish after swapping is complete. 
+   * (seems like it won't work if page flipping is disabled) */
+  if (ctx->vblank_method == 0) {
+    uint8_t pixels[4] = { 255, 0, 255, 255 };
+    glReadBuffer(GL_FRONT);
+    glReadPixels(1,1,1,1,GL_RGB, GL_UNSIGNED_BYTE, pixels);
+    nvstusb_set_eye(ctx, eye);
+  }
 }
 
 /* get key status from controller */
