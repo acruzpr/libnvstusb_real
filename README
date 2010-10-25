@@ -24,18 +24,19 @@ If you dare to try this out, you will need the following things first:
 - libusb
 - GLUT
 - gcc and make
+- XF86vmode
 
 
 Building and running
 ====================
 
 To build everything just type
-  
+  ./configure
   make
 
 To try it out type
 
-  ./3dv
+  ./example/example
 
 If everything works you should now see a white 3-dimensional triangle. In
 the upper left corner is an additional triangle that is meant to be seen
@@ -81,7 +82,7 @@ but I give no promises.
 
 To extract the firmware simply run
 
-  ./extractfw path-to-nvstusb.sys
+  ./tools/extractfw path-to-nvstusb.sys
 
 and hope everything works just fine. ;)
 
