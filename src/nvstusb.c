@@ -16,12 +16,13 @@
 #include <GL/gl.h>
 #include <GL/glx.h>
 #include <GL/glxext.h>
+
 #include "nvstusb.h"
 #include "usb.h"
 
-static PFNGLXGETVIDEOSYNCSGIPROC glXGetVideoSyncSGI = 0;
-static PFNGLXWAITVIDEOSYNCSGIPROC glXWaitVideoSyncSGI = 0;
-static PFNGLXSWAPINTERVALSGIPROC glXSwapInterval = 0;
+static PFNGLXGETVIDEOSYNCSGIPROC glXGetVideoSyncSGI = NULL;
+static PFNGLXWAITVIDEOSYNCSGIPROC glXWaitVideoSyncSGI = NULL;
+static PFNGLXSWAPINTERVALSGIPROC glXSwapInterval = NULL;
 
 /* cpu clock */
 #define NVSTUSB_CLOCK           48000000LL
@@ -29,10 +30,12 @@ static PFNGLXSWAPINTERVALSGIPROC glXSwapInterval = 0;
 /* T0 runs at 4 MHz */
 #define NVSTUSB_T0_CLOCK        (NVSTUSB_CLOCK/12LL)
 #define NVSTUSB_T0_COUNT(us)    (-(us)*(NVSTUSB_T0_CLOCK/1000000)+1)
+#define NVSTUSB_T0_US(count)    (-(count-1)/(NVSTUSB_T0_CLOCK/1000000))
 
 /* T2 runs at 12 MHz */
 #define NVSTUSB_T2_CLOCK        (NVSTUSB_CLOCK/ 4LL)
 #define NVSTUSB_T2_COUNT(us)    (-(us)*(NVSTUSB_T2_CLOCK/1000000)+1)
+#define NVSTUSB_T2_US(count)    (-(count-1)/(NVSTUSB_T2_CLOCK/1000000))
 
 #define NVSTUSB_CMD_WRITE       (0x01)  /* write data */
 #define NVSTUSB_CMD_READ        (0x02)  /* read data */
@@ -44,7 +47,7 @@ static PFNGLXSWAPINTERVALSGIPROC glXSwapInterval = 0;
 /* state of the controller */
 struct nvstusb_context {
   /* currently selected refresh rate */
-  int rate;
+  float rate;
 
   /* currently active eye */
   enum nvstusb_eye eye;
@@ -52,20 +55,14 @@ struct nvstusb_context {
   /* device handle */
   struct nvstusb_usb_device *device;
 
-  /* swap function */
-  void (*swap)();
+  /* Toggled state */
+  int toggled3D;
 };
 
 /* initialize controller */
 struct nvstusb_context *
-nvstusb_init(
-  void (*swapfunc)()
-) {
-  /* check argument */
-  if (0 == swapfunc) {
-    fprintf(stderr, "nvstusb: no swap function supplied!\n");
-    return 0;
-  }
+nvstusb_init(void) 
+{
   
   /* initialize usb */
   if (!nvstusb_usb_init()) return 0;
@@ -82,24 +79,23 @@ nvstusb_init(
     nvstusb_usb_deinit();
     return 0;
   }
-  ctx->rate = 0;
+  ctx->rate = 0.0;
   ctx->eye = 0;
   ctx->device = dev;
-  ctx->swap = swapfunc;
   
   glXGetVideoSyncSGI = (PFNGLXGETVIDEOSYNCSGIPROC)glXGetProcAddress("glXGetVideoSyncSGI");
   glXWaitVideoSyncSGI = (PFNGLXWAITVIDEOSYNCSGIPROC)glXGetProcAddress("glXWaitVideoSyncSGI");
-  if (0 == glXWaitVideoSyncSGI) {
+  if (NULL == glXWaitVideoSyncSGI) {
     glXGetVideoSyncSGI = 0;
   }
 
-  if (0 != glXGetVideoSyncSGI ) {
+  if (NULL != glXGetVideoSyncSGI ) {
     fprintf(stderr, "nvstusb: GLX_SGI_video_sync supported!\n");
   }
 
   glXSwapInterval = (PFNGLXSWAPINTERVALSGIPROC)glXGetProcAddress("glXSwapIntervalSGI");
 
-  if (0 != glXSwapInterval) {
+  if (NULL != glXSwapInterval) {
     fprintf(stderr, "nvstusb: forcing vsync\n");
     glXSwapInterval(1);
   }
@@ -126,13 +122,11 @@ nvstusb_deinit(
   free(ctx);
 }
 
-float nvstusb_x = 4774;
-
 /* set controller refresh rate (should be monitor refresh rate) */
 void
 nvstusb_set_rate(
   struct nvstusb_context *ctx,
-  int rate
+  float rate
 ) {
   assert(ctx != 0);
   assert(ctx->device != 0);
@@ -141,7 +135,7 @@ nvstusb_set_rate(
   /* send some magic data to device, this function is mainly black magic */
 
   /* some timing voodoo */
-  int32_t frameTime   = 1000000/rate;         /* 8.33333 ms if 120 Hz */
+  int32_t frameTime   = (1000000.0/rate);     /* 8.33333 ms if 120 Hz */
   int32_t activeTime  = 2080;                 /* 2.08000 ms time each eye is on*/
 
   int32_t w = NVSTUSB_T2_COUNT(4568.50);      /* 4.56800 ms */
@@ -235,41 +229,99 @@ nvstusb_set_rate(
 static void
 nvstusb_set_eye(
   struct nvstusb_context *ctx,
-  enum nvstusb_eye eye,
-  uint16_t r
+  enum nvstusb_eye eye
 ) {
   assert(ctx != 0);
   assert(ctx->device != 0);
   assert(eye == nvstusb_left || eye == nvstusb_right);
+  uint32_t r;
 
-  uint8_t buf[8] = { 
-    NVSTUSB_CMD_SET_EYE,      /* set shutter state */
-    (eye%2)?0xFE:0xFF,        /* eye selection */
-    0x00, 0x00,               /* unused */
-    r, r>>8, 0xFF, 0xFF       /* still a mystery */
-  };
-  nvstusb_usb_write_bulk(ctx->device, 1, buf, 8);
+//#define FF_TEST_R
+#ifdef FF_TEST_R
+  static int i = 0;
+  i++;
+  static int j = 0;
+  static uint32_t r_tmp = NVSTUSB_T2_COUNT(0);;
+
+  if(ctx->toggled3D) {
+    r = r_tmp;
+  } else {
+    r = NVSTUSB_T2_COUNT((1e6/ctx->rate)/1.8);
+  }
+
+  if(i%32 == 0) {
+    if(ctx->toggled3D) {
+      r_tmp -= 500;
+    }
+
+    if(((int)r_tmp) < NVSTUSB_T2_COUNT((1e6/ctx->rate))) {
+      r_tmp = NVSTUSB_T2_COUNT(0);
+    }
+    printf("r:%08x %d %lld %lld\n",r, r,NVSTUSB_T0_US(r), NVSTUSB_T2_US(r));
+  }
+#else
+  r = NVSTUSB_T2_COUNT((1e6/ctx->rate)/1.8);
+#endif
+
+  switch(eye) {
+    case nvstusb_right:
+    case nvstusb_left:
+    {
+      uint8_t buf[8] = { 
+        NVSTUSB_CMD_SET_EYE,      /* set shutter state */
+        (eye==nvstusb_right)?0xFE:0xFF,        /* eye selection */
+        0x00, 0x00,               /* unused */
+        r, r>>8, r>>16, r>>24
+      };
+      nvstusb_usb_write_bulk(ctx->device, 1, buf, 8);		
+    }
+    break;
+    case nvstusb_quad:
+    {
+      uint8_t buf1[8] = { 
+        NVSTUSB_CMD_SET_EYE,      /* set shutter state */
+        (uint8_t)0xFF,        /* eye selection */
+        0x00, 0x00,               /* unused */
+        r, r>>8, r>>16, r>>24
+      };
+      nvstusb_usb_write_bulk(ctx->device, 1, buf1, 8);
+
+			uint8_t buf2[8] = { 
+        NVSTUSB_CMD_SET_EYE,      /* set shutter state */
+        (uint8_t)0xFE,        /* eye selection */
+        0x00, 0x00,               /* unused */
+        r, r>>8, r>>16, r>>24
+      };
+      nvstusb_usb_write_bulk(ctx->device, 1, buf2, 8);
+    }
+    break;
+  }
 }
 
 /* perform swap and toggle eyes hopefully with correct timing */
 void
 nvstusb_swap(
   struct nvstusb_context *ctx,
-  enum nvstusb_eye eye
+  enum nvstusb_eye eye,
+  void (*swapfunc)()
 ) {
   assert(ctx != 0);
   assert(ctx->device != 0);
   assert(eye == nvstusb_left || eye == nvstusb_right);
 
-  if (0 != glXGetVideoSyncSGI) {
+  if (NULL != glXGetVideoSyncSGI) {
     /* if we have the GLX_SGI_video_sync extension, we just wait
      * for vertical blanking, then issue swap. */
     unsigned int count;
 
+    /* Waiting OpenGL sync */
     glXGetVideoSyncSGI(&count);
     glXWaitVideoSyncSGI(2, (count+1)%2, &count);
-    nvstusb_set_eye(ctx, eye, 0);
-    ctx->swap();
+
+    /* Change eye */
+    nvstusb_set_eye(ctx, eye);
+
+    swapfunc();
     return;
   }
 
@@ -277,12 +329,12 @@ nvstusb_swap(
    * this operation can only finish after swapping is complete. 
    * (seems like it won't work if page flipping is disabled) */
  
-  ctx->swap();
+  swapfunc();
 
   uint8_t pixels[4] = { 255, 0, 255, 255 };
   glReadBuffer(GL_FRONT);
   glReadPixels(1,1,1,1,GL_RGB, GL_UNSIGNED_BYTE, pixels);
-  nvstusb_set_eye(ctx, eye, 0);
+  nvstusb_set_eye(ctx, eye);
 }
 
 /* get key status from controller */
@@ -326,6 +378,10 @@ nvstusb_get_keys(
    * bit 1: logic state of pin 7 on port E
    * bit 2: logic state of pin 2 on port C
    */
-  keys->toggled3D  = readBuf[6] & 0x01;     
+  keys->toggled3D  = readBuf[6] & 0x01; 
+
+  if(keys->toggled3D) {
+    ctx->toggled3D = !ctx->toggled3D;
+  } 
 }
 

@@ -2,7 +2,7 @@
 # Process this file with autoconf to produce a configure script.
 
 AC_PREREQ([2.63])
-AC_INIT([libnvstub], [1.0], [])
+AC_INIT([libnvstub], [0.1])
 AM_INIT_AUTOMAKE([-Wall -Werror foreign])
 
 # Checks for programs.
@@ -14,7 +14,7 @@ PKG_CHECK_MODULES([ILUT], [ILUT >= 1.7.0])
 PKG_CHECK_MODULES([ILU], [ILU >= 1.7.0]) 
 PKG_CHECK_MODULES([IL], [IL >= 1.7.0]) 
 PKG_CHECK_MODULES([GL], [gl >= 7.7.0]) 
-PKG_CHECK_MODULES([X11], [x11 >= 1.3.2, xrandr >= 1.3.0]) 
+PKG_CHECK_MODULES([X11], [x11 >= 1.3.2, xxf86vm >= 1.1.0]) 
 AC_CHECK_LIB(glut, glutMainLoop)
 
 # Checks for header files.
@@ -26,7 +26,6 @@ AC_TYPE_UINT32_T
 
 # Checks for library functions.
 CFLAGS="-Werror -std=gnu99"
-CXXFLAGS="-Werror -std=gnu++0x"
 
 AC_MSG_CHECKING(whether to enable debugging)
 debug_default="yes"
@@ -34,7 +33,6 @@ debug_default="yes"
 AC_ARG_ENABLE(debug, [  --enable-debug=[no/yes] turn on debugging
                        [default=$debug_default]],, enable_debug=$debug_default)
 if test "x$enable_debug" = "xyes"; then
-         CXXFLAGS="$CXXFLAGS -g -DNVSTUSB_DEBUG"
          CFLAGS="$CFLAGS -g -DNVSTUSB_DEBUG"
 AC_MSG_RESULT(yes)
 else

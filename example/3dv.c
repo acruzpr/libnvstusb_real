@@ -8,14 +8,19 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <time.h>
 
 #include "nvstusb.h"
 
 #include <GL/glut.h>
 
+#define ILUT_USE_OPENGL
 #include <IL/il.h>
 #include <IL/ilu.h>
 #include <IL/ilut.h>
+
+#include<X11/Xlib.h>
+#include<X11/extensions/xf86vmode.h>
 
 ILuint image = 0;
 GLuint texture = 0;
@@ -26,6 +31,28 @@ float depth = 0.0;
 int inverteyes = 1;
 
 extern float nvstusb_x;
+
+void print_refresh_rate(void)
+{
+  static int i_it = 0;
+  static uint64_t i_last = 0;
+
+  if(i_it == 0) {
+    struct timespec s_tmp;
+    clock_gettime(CLOCK_REALTIME, &s_tmp);
+    i_last = (double)s_tmp.tv_sec*1000.0+(double)s_tmp.tv_nsec/1000000.0;
+  }
+		
+  if(i_it % 512 == 0) {
+    struct timespec s_tmp;
+    clock_gettime(CLOCK_REALTIME, &s_tmp);
+    uint64_t i_new = (double)s_tmp.tv_sec*1000.0+(double)s_tmp.tv_nsec/1000000.0;
+    printf("%f %f\n",1000.0/((float)(i_new-i_last)/(i_it)), (float)(i_new-i_last)-((1000/75)*(i_it)));
+  }
+
+  i_it++;
+}
+
 
 void draw() {
   glClearColor(0.0, 0.0, 0.0, 1.0);
@@ -52,7 +79,7 @@ void draw() {
   glEnd();
 
   glFinish();
-  nvstusb_swap(ctx, eye);
+  nvstusb_swap(ctx, eye, glutSwapBuffers);
   eye = 1-eye;
 
   struct nvstusb_keys k;
@@ -63,10 +90,6 @@ void draw() {
 
   if (k.deltaWheel) {
     depth += 0.01 * k.deltaWheel;
-
-    nvstusb_x += 0.1 * k.deltaWheel;
-    printf("%f\n", nvstusb_x);
-    nvstusb_set_rate(ctx, 120);
   }
 }
 
@@ -89,7 +112,7 @@ void drawNoImage() {
   glEnd();
 
   glFinish();
-  nvstusb_swap(ctx, eye);
+  nvstusb_swap(ctx, eye, glutSwapBuffers);
   eye = 1-eye;
 
   struct nvstusb_keys k;
@@ -108,14 +131,25 @@ int main(int argc, char **argv) {
   glutInit(&argc, argv);
   glutInitDisplayMode(GLUT_RGB|GLUT_DOUBLE);
   
-  ctx = nvstusb_init(glutSwapBuffers);
+  ctx = nvstusb_init();
 
   if (0 == ctx) {
     fprintf(stderr, "could not initialize NVIDIA 3D Stereo Controller, aborting\n");
     exit(EXIT_FAILURE);
   }
 
-  nvstusb_set_rate(ctx, 120);
+  /* Get Vsync rate from X11 */
+  {
+    static Display *dpy;
+    dpy = XOpenDisplay(0);
+    double displayNumber=DefaultScreen(dpy);
+    XF86VidModeModeLine modeline;
+    int pixelclock;
+    XF86VidModeGetModeLine( dpy, displayNumber, &pixelclock, &modeline );
+    double frameRate=(double) pixelclock*1000/modeline.htotal/modeline.vtotal;
+    printf("Vertical Refresh rate:%f Hz\n",frameRate);
+    nvstusb_set_rate(ctx, frameRate);
+  }
   
   if (argc > 1) {
     ilInit();

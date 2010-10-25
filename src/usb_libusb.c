@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <assert.h>
+#include <unistd.h>
 
 static struct libusb_context *nvstusb_usb_context = 0;
 static const int nvstusb_usb_debug_level = 3;
@@ -14,9 +15,9 @@ struct nvstusb_usb_device {
  /* convert a libusb error to a readable string */
 static const char *
 libusb_error_to_string(
-  enum libusb_error error
+ int error
 ) {
-  switch(error) {
+  switch((enum libusb_error) error) {
     case LIBUSB_SUCCESS:              return "Success (no error)";
     case LIBUSB_ERROR_IO:             return "Input/output error";
     case LIBUSB_ERROR_INVALID_PARAM:  return "Invalid parameter";
@@ -163,7 +164,7 @@ nvstusb_usb_open_device(
 
   fprintf(stderr, "nvstusb: Found NVIDIA 3d stereo controller...\n");
 
-  struct nvstusb_usb_device *dev = malloc(sizeof(*dev));
+  struct nvstusb_usb_device *dev = (struct nvstusb_usb_device *) malloc(sizeof(*dev));
   dev->handle = handle;
 
   if (nvstusb_usb_needs_firmware(dev)) {
@@ -210,7 +211,7 @@ nvstusb_usb_write_bulk(
   assert(dev         != 0);
   assert(dev->handle != 0);
 
-  return libusb_bulk_transfer(dev->handle, endpoint | LIBUSB_ENDPOINT_OUT, (void*)data, size, &sent, 0);
+  return libusb_bulk_transfer(dev->handle, endpoint | LIBUSB_ENDPOINT_OUT, (unsigned char*)data, size, &sent, 0);
 }
 
 /* receive data from an endpoint */
@@ -227,7 +228,7 @@ nvstusb_usb_read_bulk(
   assert(dev         != 0);
   assert(dev->handle != 0);
   
-  res = libusb_bulk_transfer(dev->handle, endpoint | LIBUSB_ENDPOINT_IN,  data, size, &recvd, 0);
+  res = libusb_bulk_transfer(dev->handle, endpoint | LIBUSB_ENDPOINT_IN, (unsigned char*) data, size, &recvd, 200);
   return recvd;
 }
 
