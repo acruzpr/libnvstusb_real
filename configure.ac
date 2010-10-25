@@ -4,6 +4,7 @@
 AC_PREREQ([2.63])
 AC_INIT([libnvstub], [0.1])
 AM_INIT_AUTOMAKE([-Wall -Werror foreign])
+AC_PROG_INSTALL
 
 # Checks for programs.
 AC_PROG_LIBTOOL
@@ -40,5 +41,5 @@ AC_MSG_RESULT(no)
 fi
 
 
-AC_CONFIG_FILES([Makefile src/Makefile tools/Makefile example/Makefile])
+AC_CONFIG_FILES([Makefile src/Makefile tools/Makefile example/Makefile  pkgconfig/libnvstusb.pc])
 AC_OUTPUT
