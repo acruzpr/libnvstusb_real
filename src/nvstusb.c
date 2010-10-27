@@ -78,7 +78,7 @@ nvstusb_init(void)
   /* allocate context */
   struct nvstusb_context *ctx = malloc(sizeof(*ctx));
   if (0 == ctx) {
-    fprintf(stderr, "nvstusb: Could not allocate %u bytes for nvstusb_context...\n", sizeof(*ctx));
+    fprintf(stderr, "nvstusb: Could not allocate %lu bytes for nvstusb_context...\n", sizeof(*ctx));
     nvstusb_usb_close_device(dev);
     nvstusb_usb_deinit();
     return 0;
