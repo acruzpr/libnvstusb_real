@@ -177,7 +177,7 @@ findDataSection(
   fprintf(stderr, "%hu bytes of optional PE header\n", optionalHeaderSize);
 
   size_t sectionOffset = peHeaderOffset + 20 + optionalHeaderSize;
-  fprintf(stderr, "first section header at %08x\n\n", sectionOffset);
+  fprintf(stderr, "first section header at %08x\n\n", (int)sectionOffset);
 
   unsigned short i;
   size_t dataSectionAddress = 0;
@@ -192,7 +192,7 @@ findDataSection(
     size_t curSectionAddress = readFileDWORD(fileIndex, curSectionOffset + 20);
 
     fprintf(stderr, "section %8s: %8d bytes at %08x\n", 
-      sectionName, curSectionSize, curSectionAddress
+      sectionName, (int)curSectionSize, (int)curSectionAddress
     );
 
     if (0 == strcmp(sectionName, ".data")) {
@@ -222,7 +222,7 @@ findFirmware(
 
     if (0 == memcmp(buf, firmwareSignature, 8)) {
       size_t fwOffset = dataSectionOffset + offset + 8;
-      fprintf(stderr, "probably found firmware %d bytes into .data section at %08x\n\n", offset, fwOffset);
+      fprintf(stderr, "probably found firmware %d bytes into .data section at %08x\n\n", (int)offset, (int)fwOffset);
       return fwOffset;
     }
   }
