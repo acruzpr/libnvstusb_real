@@ -1,4 +1,6 @@
-/* nvstusb.c Copyright (C) 2010 Bjoern Paetzel
+/* nvstusb.c 
+ * Copyright (C) 2010 Bjoern Paetzel
+ * Copyright (C) 2010 Johann Baudy
  *
  * This program comes with ABSOLUTELY NO WARRANTY.
  * This is free software, and you are welcome to redistribute it
@@ -17,13 +19,16 @@
 #include <GL/gl.h>
 #include <GL/glx.h>
 #include <GL/glxext.h>
+#include <GL/glext.h>
 
 #include "nvstusb.h"
 #include "usb.h"
 
 static PFNGLXGETVIDEOSYNCSGIPROC glXGetVideoSyncSGI = NULL;
 static PFNGLXWAITVIDEOSYNCSGIPROC glXWaitVideoSyncSGI = NULL;
-static PFNGLXSWAPINTERVALSGIPROC glXSwapInterval = NULL;
+static PFNGLXSWAPINTERVALSGIPROC glXSwapIntervalSGI = NULL;
+static PFNGLXSWAPINTERVALEXTPROC glXSwapIntervalEXT = NULL;
+ 
 
 /* cpu clock */
 #define NVSTUSB_CLOCK           48000000LL
@@ -61,6 +66,7 @@ struct nvstusb_context {
 
   /* Vblank method */
   int vblank_method;
+
 };
 
 /* initialize controller */
@@ -86,6 +92,7 @@ nvstusb_init(void)
   ctx->rate = 0.0;
   ctx->eye = 0;
   ctx->device = dev;
+    ctx->vblank_method = 0;
 
 
   /* Vblank init */
@@ -97,12 +104,41 @@ nvstusb_init(void)
     ctx->vblank_method = 2;
     goto out_err;
   }
-  
+ 
+  /* Swap interval */
+  glXSwapIntervalSGI = (PFNGLXSWAPINTERVALSGIPROC)glXGetProcAddress("glXSwapIntervalSGI");
+
+  if (NULL != glXSwapIntervalSGI) {
+    fprintf(stderr, "nvstusb: forcing vsync\n");
+    ctx->vblank_method = 3;
+  }
+
+#if 0
+  {
+      //get extensions of graphics card
+      char* extensions = (char*)glGetString(GL_EXTENSIONS);
+      printf("%s\n" , extensions);
+
+      //is WGL_EXT_swap_control in the string? VSync switch possible?
+      //if (strstr(extensions,"GLX_EXT_swap_control"))
+      {
+        Display *dpy = glXGetCurrentDisplay();
+        GLXDrawable drawable = glXGetCurrentDrawable();
+
+        //get address's of both functions and save them
+        glXSwapIntervalEXT = (PFNGLXSWAPINTERVALEXTPROC)glXGetProcAddress("glXSwapIntervalEXT");
+
+        printf("%p\n" , glXSwapIntervalEXT );
+        glXSwapIntervalEXT(dpy,drawable, 1);
+      }
+  }
+#endif
+
+  /* Sync Video */
   glXGetVideoSyncSGI = (PFNGLXGETVIDEOSYNCSGIPROC)glXGetProcAddress("glXGetVideoSyncSGI");
   glXWaitVideoSyncSGI = (PFNGLXWAITVIDEOSYNCSGIPROC)glXGetProcAddress("glXWaitVideoSyncSGI");
   if (NULL == glXWaitVideoSyncSGI) {
     glXGetVideoSyncSGI = 0;
-    ctx->vblank_method = 0;
   } else {
     ctx->vblank_method = 1;
   }
@@ -111,12 +147,6 @@ nvstusb_init(void)
     fprintf(stderr, "nvstusb: GLX_SGI_video_sync supported!\n");
   }
 
-  glXSwapInterval = (PFNGLXSWAPINTERVALSGIPROC)glXGetProcAddress("glXSwapIntervalSGI");
-
-  if (NULL != glXSwapInterval) {
-    fprintf(stderr, "nvstusb: forcing vsync\n");
-    glXSwapInterval(1);
-  }
 
 out_err:
   return ctx;
@@ -328,57 +358,98 @@ nvstusb_swap(
   assert(ctx->device != 0);
   assert(eye == nvstusb_left || eye == nvstusb_right || eye == nvstusb_quad);
   /* if we have the GLX_SGI_video_sync extension, we just wait
-  * for vertical blanking, then issue swap. */
-  if (ctx->vblank_method == 1) {
-    unsigned int count;
+   * for vertical blanking, then issue swap. */
+  switch(ctx->vblank_method) {
+  case 0:
+    {
+      /* Swap buffers */
+      swapfunc();
 
-    if(eye == nvstusb_quad) {
-      /* Waiting OpenGL sync, Do not use current count to */
-      /* prevent eyes from being inverted */
-      glXWaitVideoSyncSGI(2, 0, &count);
-
-    } else {
-      /* Waiting OpenGL sync */
-      glXGetVideoSyncSGI(&count);
-      glXWaitVideoSyncSGI(2, (count+1)%2, &count);
+      /* Sw Vsync method: read from front buffer.
+       * this operation can only finish after swapping is complete. 
+       * (seems like it won't work if page flipping is disabled) */
+      uint8_t pixels[4] = { 255, 0, 255, 255 };
+      glReadBuffer(GL_FRONT);
+      glReadPixels(1,1,1,1,GL_RGB, GL_UNSIGNED_BYTE, pixels);
+      nvstusb_set_eye(ctx, eye);
     }
+    break;
+  case 1:
+    {
+      unsigned int count;
 
-    /* Change eye */
-    nvstusb_set_eye(ctx, eye);
+      if(eye == nvstusb_quad) {
+        /* Waiting OpenGL sync, Do not use current count to */
+        /* prevent eyes from being inverted */
+        glXWaitVideoSyncSGI(2, 0, &count);
+
+      } else {
+        /* Waiting OpenGL sync */
+        glXGetVideoSyncSGI(&count);
+        glXWaitVideoSyncSGI(2, (count+1)%2, &count);
+      }
+
+      /* Change eye */
+      nvstusb_set_eye(ctx, eye);
+
+      /* Swap buffers */
+      swapfunc();
+    }
+    break;
+  case 2:
+    {
+      /* case __GL_SYNC_TO_VBLANK is defined */
+
+      /* Swap buffers */
+      swapfunc();
+      
+      /* Change eye */
+      nvstusb_set_eye(ctx, eye);
+    }
+    break;
+  case 3:
+    {
+      static int i_current_interval = -1;
+      int i_interval;
+      if(eye == nvstusb_quad) {
+        i_interval = 2;
+      } else {
+        i_interval = 1;
+      }
+      if(i_current_interval != i_interval) {
+        glXSwapIntervalSGI(i_interval);
+        i_current_interval = i_interval;
+      }
+      
+      
+      /* Swap buffers */
+      swapfunc();
+      
+      /* Change eye */
+      nvstusb_set_eye(ctx, eye);
+      
+    }
+    break;
+  default:
+    fprintf(stderr, "nvstusb: unknown vblank method\n");
   }
 
-  /* case __GL_SYNC_TO_VBLANK is defined */
-  if(ctx->vblank_method == 2) {
-    /* Change eye */
-    nvstusb_set_eye(ctx, eye);
-  }
 
-  /* Swap buffers */
-  swapfunc();
 
-  /* Sw Vsync method: read from front buffer.
-   * this operation can only finish after swapping is complete. 
-   * (seems like it won't work if page flipping is disabled) */
-  if (ctx->vblank_method == 0) {
-    uint8_t pixels[4] = { 255, 0, 255, 255 };
-    glReadBuffer(GL_FRONT);
-    glReadPixels(1,1,1,1,GL_RGB, GL_UNSIGNED_BYTE, pixels);
-    nvstusb_set_eye(ctx, eye);
-  }
 }
 
 /* get key status from controller */
 void
 nvstusb_get_keys(
-  struct nvstusb_context *ctx,
-  struct nvstusb_keys *keys
-) {
+    struct nvstusb_context *ctx,
+    struct nvstusb_keys *keys
+    ) {
   assert(ctx  != 0);
   assert(keys != 0);
 
   uint8_t cmd1[] = { 
     NVSTUSB_CMD_READ |      /* read and clear data */
-    NVSTUSB_CMD_CLEAR,
+      NVSTUSB_CMD_CLEAR,
 
     0x18,                   /* from address 0x201F (0x2007+0x18) = status? */
     0x03, 0x00              /* read/clear 3 bytes */
@@ -397,12 +468,12 @@ nvstusb_get_keys(
    * signed 8 bit integer: amount the wheel was turned without the button pressed
    */
   keys->deltaWheel = readBuf[4];
-  
+
   /* from address 0x2020:
    * signed 8 bit integer: amount the wheel was turned with the button pressed
    */
   keys->pressedDeltaWheel = readBuf[5];
-  
+
   /* from address 0x2021:
    * bit 0: front button was pressed since last time (presumably fom pin 4 on port C)
    * bit 1: logic state of pin 7 on port E

@@ -18,7 +18,7 @@
 
 static PFNGLXGETVIDEOSYNCSGIPROC glXGetVideoSyncSGI = NULL;
 static PFNGLXWAITVIDEOSYNCSGIPROC glXWaitVideoSyncSGI = NULL;
-static PFNGLXSWAPINTERVALSGIPROC glXSwapInterval = NULL;
+static PFNGLXSWAPINTERVALSGIPROC glXSwapIntervalSGI = NULL;
 long i_sleep = 0;
 
 void print_refresh_rate(void)
@@ -77,6 +77,7 @@ void drawNoImage() {
 
   if(!i_sleep)
   {
+#if 0
     unsigned int i_before_count;
     unsigned int i_after_count;
     static unsigned int i_last_count;
@@ -93,7 +94,9 @@ void drawNoImage() {
       fprintf(stderr, "Count last error a:%d b:%d \n", i_last_count, i_before_count);
     }
     i_last_count = i_after_count;
-
+#else
+    glXSwapIntervalSGI(1);
+#endif
   } else {
     usleep(i_sleep);
   }
@@ -130,6 +133,12 @@ int main(int argc, char **argv) {
     i_sleep = 8133;
   }
 
+  /* Swap interval */
+  glXSwapIntervalSGI = (PFNGLXSWAPINTERVALSGIPROC)glXGetProcAddress("glXSwapIntervalSGI");
+
+  if (NULL != glXSwapIntervalSGI) {
+    fprintf(stderr, "nvstusb: forcing vsync\n");
+  }
   glutMainLoop();
 
   return EXIT_SUCCESS;

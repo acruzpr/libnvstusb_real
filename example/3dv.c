@@ -137,7 +137,6 @@ void idle() {
     /* Draw right buffer */
     glDrawBuffer(GL_BACK_RIGHT);
     pf_draw(1);
-    glFinish();
 
     /* Send double swap (quad buffering) */
     nvstusb_swap(ctx, nvstusb_quad, glutSwapBuffers);
@@ -149,15 +148,12 @@ void idle() {
     /* Draw either left or right depending on counter */
     glDrawBuffer(GL_BACK);
     pf_draw(i_counter&1);
-    glFinish();
 
     /* Send swap command */
     nvstusb_swap(ctx, i_counter&1, glutSwapBuffers);
     i_counter++;
   }
 
-  /* Display refresh rate info */
-  print_refresh_rate();
 
 
   /* Gather controler status */
@@ -166,6 +162,9 @@ void idle() {
   if (k.toggled3D) {
     inverteyes = !inverteyes;
   }
+  
+  /* Display refresh rate info */
+  print_refresh_rate();
 
   if (k.deltaWheel) {
     depth += 0.01 * k.deltaWheel;
