@@ -252,7 +252,7 @@ nvstusb_set_eye(
 ) {
   assert(ctx != 0);
   assert(ctx->device != 0);
-  assert(eye == nvstusb_left || eye == nvstusb_right);
+  assert(eye == nvstusb_left || eye == nvstusb_right || eye == nvstusb_quad);
   uint32_t r;
 
 //#define FF_TEST_R
@@ -326,16 +326,22 @@ nvstusb_swap(
 ) {
   assert(ctx != 0);
   assert(ctx->device != 0);
-  assert(eye == nvstusb_left || eye == nvstusb_right);
-
+  assert(eye == nvstusb_left || eye == nvstusb_right || eye == nvstusb_quad);
   /* if we have the GLX_SGI_video_sync extension, we just wait
   * for vertical blanking, then issue swap. */
   if (ctx->vblank_method == 1) {
     unsigned int count;
 
-    /* Waiting OpenGL sync */
-    glXGetVideoSyncSGI(&count);
-    glXWaitVideoSyncSGI(2, (count+1)%2, &count);
+    if(eye == nvstusb_quad) {
+      /* Waiting OpenGL sync, Do not use current count to */
+      /* prevent eyes from being inverted */
+      glXWaitVideoSyncSGI(2, 0, &count);
+
+    } else {
+      /* Waiting OpenGL sync */
+      glXGetVideoSyncSGI(&count);
+      glXWaitVideoSyncSGI(2, (count+1)%2, &count);
+    }
 
     /* Change eye */
     nvstusb_set_eye(ctx, eye);
