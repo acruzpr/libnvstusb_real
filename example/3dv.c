@@ -138,10 +138,15 @@ void idle() {
     glDrawBuffer(GL_BACK_RIGHT);
     pf_draw(1);
 
-    /* Send double swap (quad buffering) */
-    nvstusb_swap(ctx, nvstusb_quad, glutSwapBuffers);
+    if(config_stereo == 1) {
+      /* Send double swap (quad buffering) */
+      nvstusb_swap(ctx, nvstusb_quad, glutSwapBuffers);
+    } else {
+      /* Stereo thread is running, No need to use nvstusb_swap() */
+      glutSwapBuffers();
+    }
 
-  /* default case */
+    /* default case */
   } else {
     static int i_counter = 0;
 
@@ -154,15 +159,13 @@ void idle() {
     i_counter++;
   }
 
-
-
   /* Gather controler status */
   struct nvstusb_keys k;
   nvstusb_get_keys(ctx, &k);
-  if (k.toggled3D) {
+  if (k.toggled3D && (config_stereo != 2)) {
     inverteyes = !inverteyes;
   }
-  
+
   /* Display refresh rate info */
   print_refresh_rate();
 
@@ -188,8 +191,9 @@ int main(int argc, char **argv)
     struct option long_options[] =
     {
       /* These options set a flag. */
-      {"verbose", no_argument,       &config_verbose, 1},
-      {"stereo",   no_argument,       &config_stereo, 1},
+      {"verbose",      no_argument,       &config_verbose, 1},
+      {"stereo",       no_argument,       &config_stereo,  1},
+      {"stereothread", no_argument,       &config_stereo,  2},
       {NULL, 0, 0, 0}
     };
 
@@ -297,7 +301,7 @@ int main(int argc, char **argv)
     /* Set draw callback */
     pf_draw = drawImage;
 
-  /* Case: No image */
+    /* Case: No image */
   } else {
     /* Create window */
     glutInitWindowSize(512, 512);
@@ -307,9 +311,14 @@ int main(int argc, char **argv)
     pf_draw = drawNoImage;
   }
 
+  /* If thread stereo selected, start nvstusb thread */
+  if(config_stereo == 2) {
+    nvstusb_start_stereo_thread(ctx);
+  }
+
   /* Set idle function */
   glutIdleFunc(idle);
-  
+
   /* Main Loop */
   glutMainLoop();
 

@@ -16,6 +16,7 @@
 #include <time.h>
 #include <assert.h>
 #include <math.h>
+#include <pthread.h>
 
 #include <GL/gl.h>
 #include <GL/glx.h>
@@ -30,7 +31,9 @@ static PFNGLXWAITVIDEOSYNCSGIPROC glXWaitVideoSyncSGI = NULL;
 static PFNGLXSWAPINTERVALSGIPROC glXSwapIntervalSGI = NULL;
 static PFNGLXSWAPINTERVALEXTPROC glXSwapIntervalEXT = NULL;
 
+/* Static functions */
 static void nvstusb_print_refresh_rate(void);
+static void * nvstusb_stereo_thread(void * in_pv_arg);
 
 /* cpu clock */
 #define NVSTUSB_CLOCK           48000000LL
@@ -71,6 +74,12 @@ struct nvstusb_context {
 
   /* Invert eyes command status */
   int invert_eyes;
+
+  /* Stereo Thread handler */
+  pthread_t s_thread;
+
+  /* Stereo thread state */
+  char b_thread_running;
 };
 
 /* initialize controller */
@@ -99,6 +108,7 @@ nvstusb_init(void)
   ctx->vblank_method = 0;
   ctx->toggled3D = 0;
   ctx->invert_eyes = 0;
+  ctx->b_thread_running = 0;
 
 
   /* Vblank init */
@@ -143,6 +153,11 @@ nvstusb_deinit(
     struct nvstusb_context *ctx
     ) {
   if (0 == ctx) return;
+
+  /* Close thread if running */
+  if(ctx->b_thread_running) {
+    nvstusb_stop_stereo_thread(ctx);
+  }
 
   /* close device */
   if (0 != ctx->device) nvstusb_usb_close_device(ctx->device);
@@ -338,7 +353,7 @@ nvstusb_swap(
   assert(ctx->device != 0);
   assert(eye == nvstusb_left || eye == nvstusb_right || eye == nvstusb_quad);
 
-/* if we have the GLX_SGI_video_sync extension, we just wait
+  /* if we have the GLX_SGI_video_sync extension, we just wait
    * for vertical blanking, then issue swap. */
   switch(ctx->vblank_method) {
   case 0:
@@ -360,7 +375,7 @@ nvstusb_swap(
   case 1:
     {
       unsigned int count;
-	
+
 
       if(eye == nvstusb_quad) {
         int before_count;
@@ -479,6 +494,99 @@ nvstusb_get_keys(
   } 
 }
 
+/* Start Stereo Thread - For GL_STEREO */
+void nvstusb_start_stereo_thread(struct nvstusb_context *ctx) 
+{
+  assert(ctx != 0);
+  assert(ctx->device != 0);
+
+  ctx->b_thread_running = true;
+  if ( pthread_create(&ctx->s_thread, NULL, nvstusb_stereo_thread, (void *)ctx) != 0 ) {
+    fprintf(stderr, "nvstusb: Unable to start stereo stread");
+  }
+}
+
+/* End Stereo Thread - For GL_STEREO  */
+void nvstusb_stop_stereo_thread(struct nvstusb_context *ctx) 
+{
+  assert(ctx != 0);
+  assert(ctx->device != 0);
+
+  if(!ctx->b_thread_running) return;
+
+  ctx->b_thread_running = false;
+  if ( pthread_join(ctx->s_thread, NULL) != 0 ) {
+    fprintf(stderr, "nvstusb: Unable to wait end of stereo stread");
+  }
+}
+
+/* Stereo thread - For GL_STEREO  */
+static void * nvstusb_stereo_thread(void * in_pv_arg)
+{
+  struct nvstusb_context *ctx = (struct nvstusb_context *) in_pv_arg;
+  Display *dpy;
+  Window win;
+
+  /* Openning X display */
+  dpy = XOpenDisplay(0);
+
+  /* Preparing new X window */
+  Window s_window;
+  static int attributeList[] =
+  { GLX_RGBA,
+    GLX_DOUBLEBUFFER,
+    GLX_RED_SIZE,
+    1,
+    GLX_GREEN_SIZE,
+    1,
+    GLX_BLUE_SIZE,
+    1,
+    None };
+  XVisualInfo *vi = glXChooseVisual(dpy, DefaultScreen(dpy), attributeList);
+  s_window = RootWindow(dpy, vi->screen);
+  XSetWindowAttributes swa;
+  swa.colormap = XCreateColormap(dpy, s_window, vi->visual, AllocNone);
+  swa.override_redirect = true;
+
+  /* Create X window 1x1 top left of screen */
+  win = XCreateWindow(dpy,
+      s_window ,
+      0,
+      0,
+      1,
+      1,
+      0,
+      vi->depth,
+      InputOutput,
+      vi->visual,
+      CWColormap|CWOverrideRedirect,
+      &swa);
+
+  XMapWindow(dpy, win);
+
+  /* Create glX context */
+  GLXContext glx_ctx = glXCreateContext(dpy, vi, 0, true);
+  glXMakeCurrent(dpy, win, glx_ctx);
+
+  /* Loop until stop */
+  while (ctx->b_thread_running) {
+    /* Send swap to usb controler */
+    nvstusb_swap(ctx, nvstusb_quad, NULL /*f_swap*/);
+
+    /* Read status from usb controler */
+    struct nvstusb_keys k;
+    nvstusb_get_keys(ctx, &k);
+    if (k.toggled3D) {
+      nvstusb_invert_eyes(ctx);
+    }
+  }
+  /* Destroy context */
+  glx_ctx = glXGetCurrentContext();
+  glXDestroyContext(dpy, glx_ctx);
+
+  return NULL;
+}
+
 /* Refresh rate calculation */
 static void nvstusb_print_refresh_rate(void)
 {
@@ -506,9 +614,6 @@ static void nvstusb_print_refresh_rate(void)
     /* Calculate variance */
     i_acc_var += pow((double)(i_new-i_last)-f_mean, 2);
 
-    //if((i_new-i_last) -f_mean > 300) {
-    //  fprintf(stderr,"nvstusb: Error:%f\n",(i_new-i_last) -f_mean );
-    //}
     /* std dev */
     f_var = (double)sqrt(i_acc_var/i_it);
     i_last = i_new;
