@@ -15,6 +15,7 @@
 #include <malloc.h>
 #include <time.h>
 #include <assert.h>
+#include <math.h>
 
 #include <GL/gl.h>
 #include <GL/glx.h>
@@ -28,7 +29,8 @@ static PFNGLXGETVIDEOSYNCSGIPROC glXGetVideoSyncSGI = NULL;
 static PFNGLXWAITVIDEOSYNCSGIPROC glXWaitVideoSyncSGI = NULL;
 static PFNGLXSWAPINTERVALSGIPROC glXSwapIntervalSGI = NULL;
 static PFNGLXSWAPINTERVALEXTPROC glXSwapIntervalEXT = NULL;
- 
+
+static void nvstusb_print_refresh_rate(void);
 
 /* cpu clock */
 #define NVSTUSB_CLOCK           48000000LL
@@ -67,16 +69,18 @@ struct nvstusb_context {
   /* Vblank method */
   int vblank_method;
 
+  /* Invert eyes command status */
+  int invert_eyes;
 };
 
 /* initialize controller */
 struct nvstusb_context *
 nvstusb_init(void) 
 {
-  
+
   /* initialize usb */
   if (!nvstusb_usb_init()) return 0;
-  
+
   /* open device */
   struct nvstusb_usb_device *dev = nvstusb_usb_open_device("nvstusb.fw");
   if (0 == dev) return 0;
@@ -92,19 +96,21 @@ nvstusb_init(void)
   ctx->rate = 0.0;
   ctx->eye = 0;
   ctx->device = dev;
-    ctx->vblank_method = 0;
+  ctx->vblank_method = 0;
+  ctx->toggled3D = 0;
+  ctx->invert_eyes = 0;
 
 
   /* Vblank init */
   /* NVIDIA VBlank syncing environment variable defined, signal it and disable
-  * any attempt to application side method */
+   * any attempt to application side method */
   if (getenv ("__GL_SYNC_TO_VBLANK"))
   {
     fprintf (stderr, "__GL_SYNC_TO_VBLANK defined in environment\n");
     ctx->vblank_method = 2;
     goto out_err;
   }
- 
+
   /* Swap interval */
   glXSwapIntervalSGI = (PFNGLXSWAPINTERVALSGIPROC)glXGetProcAddress("glXSwapIntervalSGI");
 
@@ -112,27 +118,6 @@ nvstusb_init(void)
     fprintf(stderr, "nvstusb: forcing vsync\n");
     ctx->vblank_method = 3;
   }
-
-#if 0
-  {
-      //get extensions of graphics card
-      char* extensions = (char*)glGetString(GL_EXTENSIONS);
-      printf("%s\n" , extensions);
-
-      //is WGL_EXT_swap_control in the string? VSync switch possible?
-      //if (strstr(extensions,"GLX_EXT_swap_control"))
-      {
-        Display *dpy = glXGetCurrentDisplay();
-        GLXDrawable drawable = glXGetCurrentDrawable();
-
-        //get address's of both functions and save them
-        glXSwapIntervalEXT = (PFNGLXSWAPINTERVALEXTPROC)glXGetProcAddress("glXSwapIntervalEXT");
-
-        printf("%p\n" , glXSwapIntervalEXT );
-        glXSwapIntervalEXT(dpy,drawable, 1);
-      }
-  }
-#endif
 
   /* Sync Video */
   glXGetVideoSyncSGI = (PFNGLXGETVIDEOSYNCSGIPROC)glXGetProcAddress("glXGetVideoSyncSGI");
@@ -147,7 +132,7 @@ nvstusb_init(void)
     fprintf(stderr, "nvstusb: GLX_SGI_video_sync supported!\n");
   }
 
-
+  fprintf(stderr, "nvstusb:selected vblank method: %d\n", ctx->vblank_method);
 out_err:
   return ctx;
 }
@@ -155,14 +140,14 @@ out_err:
 /* deinitialize controller */
 void
 nvstusb_deinit(
-  struct nvstusb_context *ctx
-) {
+    struct nvstusb_context *ctx
+    ) {
   if (0 == ctx) return;
 
   /* close device */
   if (0 != ctx->device) nvstusb_usb_close_device(ctx->device);
   ctx->device = 0;
-  
+
   /* close usb */
   nvstusb_usb_deinit();
 
@@ -174,9 +159,9 @@ nvstusb_deinit(
 /* set controller refresh rate (should be monitor refresh rate) */
 void
 nvstusb_set_rate(
-  struct nvstusb_context *ctx,
-  float rate
-) {
+    struct nvstusb_context *ctx,
+    float rate
+    ) {
   assert(ctx != 0);
   assert(ctx->device != 0);
   assert(rate > 60);
@@ -191,7 +176,7 @@ nvstusb_set_rate(
   int32_t x = NVSTUSB_T0_COUNT(4774.25);      /* 4.77425 ms */
   int32_t y = NVSTUSB_T0_COUNT(activeTime);
   int32_t z = NVSTUSB_T2_COUNT(frameTime);    
-  
+
   uint8_t cmdTimings[] = { 
     NVSTUSB_CMD_WRITE,      /* write data */
     0x00,                   /* to address 0x2007 (0x2007+0x00) = ?? */
@@ -218,7 +203,7 @@ nvstusb_set_rate(
     0x28,                     /* 2014: 101000 PD1=1, PD2=0: left eye on   */
     0x24,                     /* 2015: 100100 PD1=0, PD2=1: right eye off */
     0x22,                     /* 2016: 100010 PD1=1, PD2=1: right eye on  */
-    
+
     /* ?? used when frameState is != 2, for toggling bits in Port B,
      * values seem to have no influence on the glasses or infrared signals */
     0x0a,                     /* 2017: 1010 */
@@ -234,7 +219,7 @@ nvstusb_set_rate(
     NVSTUSB_CMD_WRITE,      /* write data */
     0x1c,                   /* to address 0x2023 (0x2007+0x1c) = ?? */
     0x02, 0x00,             /* 2 bytes follow */
-    
+
     0x02, 0x00              /* ?? seems to be the start value of some 
                                counter. runs up to 6, some things happen
                                when it is lower, that will stop if when
@@ -244,8 +229,8 @@ nvstusb_set_rate(
   nvstusb_usb_write_bulk(ctx->device, 2, cmd0x1c, sizeof(cmd0x1c));
 
   /* wait at most 2 seconds before going into idle */
-  uint16_t timeout = rate * 2;  
-    
+  uint16_t timeout = rate * 4;  
+
   uint8_t cmdTimeout[] = {
     NVSTUSB_CMD_WRITE,      /* write data */
     0x1e,                   /* to address 0x2025 (0x2007+0x1e) = timeout */
@@ -259,33 +244,40 @@ nvstusb_set_rate(
     NVSTUSB_CMD_WRITE,      /* write data */
     0x1b,                   /* to address 0x2022 (0x2007+0x1b) = ?? */
     0x01, 0x00,             /* 1 byte follows */
-    
+
     0x07                    /* ?? compared with byte at 0x29 in TD_Poll()
                                bit 0-1: index to a table of 4 bytes at 0x17d4 (0x00,0x08,0x04,0x0C),
-                                        PB1 is set in TD_Poll() if this index is 0, cleared otherwise
+                               PB1 is set in TD_Poll() if this index is 0, cleared otherwise
                                bit 2:   set bool21_4, start timer 1, enable ext. int. 5
                                bit 3:   PC1 is set to the inverted value of this bit in TD_Poll()
                                bit 4-5: index to a table of 4 bytes at 0x2a 
                                bit 6:   restart t0 on some conditions in TD_Poll()
-                                */
+                             */
   };
   nvstusb_usb_write_bulk(ctx->device, 2, cmd0x1b, sizeof(cmd0x1b));
-    
+
   ctx->rate = rate;
+}
+
+void
+nvstusb_invert_eyes(
+    struct nvstusb_context *ctx
+    ) {
+  ctx->invert_eyes = !ctx->invert_eyes;
 }
 
 /* set currently open eye */
 static void
 nvstusb_set_eye(
-  struct nvstusb_context *ctx,
-  enum nvstusb_eye eye
-) {
+    struct nvstusb_context *ctx,
+    enum nvstusb_eye eye
+    ) {
   assert(ctx != 0);
   assert(ctx->device != 0);
   assert(eye == nvstusb_left || eye == nvstusb_right || eye == nvstusb_quad);
   uint32_t r;
 
-//#define FF_TEST_R
+  //#define FF_TEST_R
 #ifdef FF_TEST_R
   static int i = 0;
   i++;
@@ -313,57 +305,48 @@ nvstusb_set_eye(
 #endif
 
   switch(eye) {
-    case nvstusb_right:
-    case nvstusb_left:
+  case nvstusb_right:
+  case nvstusb_left:
     {
       uint8_t buf[8] = { 
         NVSTUSB_CMD_SET_EYE,      /* set shutter state */
-        (eye==nvstusb_right)?0xFE:0xFF,        /* eye selection */
+        ((eye==nvstusb_right)^(ctx->invert_eyes))?0xFE:0xFF,        /* eye selection */
         0x00, 0x00,               /* unused */
         r, r>>8, r>>16, r>>24
       };
       nvstusb_usb_write_bulk(ctx->device, 1, buf, 8);		
     }
     break;
-    case nvstusb_quad:
+  case nvstusb_quad:
     {
-      uint8_t buf1[8] = { 
-        NVSTUSB_CMD_SET_EYE,      /* set shutter state */
-        (uint8_t)0xFF,        /* eye selection */
-        0x00, 0x00,               /* unused */
-        r, r>>8, r>>16, r>>24
-      };
-      nvstusb_usb_write_bulk(ctx->device, 1, buf1, 8);
-
-			uint8_t buf2[8] = { 
-        NVSTUSB_CMD_SET_EYE,      /* set shutter state */
-        (uint8_t)0xFE,        /* eye selection */
-        0x00, 0x00,               /* unused */
-        r, r>>8, r>>16, r>>24
-      };
-      nvstusb_usb_write_bulk(ctx->device, 1, buf2, 8);
+      nvstusb_set_eye(ctx, nvstusb_right);
+      nvstusb_set_eye(ctx, nvstusb_left);
     }
     break;
   }
 }
 
+
 /* perform swap and toggle eyes hopefully with correct timing */
 void
 nvstusb_swap(
-  struct nvstusb_context *ctx,
-  enum nvstusb_eye eye,
-  void (*swapfunc)()
-) {
+    struct nvstusb_context *ctx,
+    enum nvstusb_eye eye,
+    void (*swapfunc)()
+    ) {
   assert(ctx != 0);
   assert(ctx->device != 0);
   assert(eye == nvstusb_left || eye == nvstusb_right || eye == nvstusb_quad);
-  /* if we have the GLX_SGI_video_sync extension, we just wait
+
+/* if we have the GLX_SGI_video_sync extension, we just wait
    * for vertical blanking, then issue swap. */
   switch(ctx->vblank_method) {
   case 0:
     {
       /* Swap buffers */
-      swapfunc();
+      if(swapfunc) {
+        swapfunc();
+      }
 
       /* Sw Vsync method: read from front buffer.
        * this operation can only finish after swapping is complete. 
@@ -377,10 +360,13 @@ nvstusb_swap(
   case 1:
     {
       unsigned int count;
+	
 
       if(eye == nvstusb_quad) {
+        int before_count;
         /* Waiting OpenGL sync, Do not use current count to */
         /* prevent eyes from being inverted */
+        glXGetVideoSyncSGI(&count);
         glXWaitVideoSyncSGI(2, 0, &count);
 
       } else {
@@ -393,7 +379,9 @@ nvstusb_swap(
       nvstusb_set_eye(ctx, eye);
 
       /* Swap buffers */
-      swapfunc();
+      if(swapfunc) {
+        swapfunc();
+      }
     }
     break;
   case 2:
@@ -401,8 +389,10 @@ nvstusb_swap(
       /* case __GL_SYNC_TO_VBLANK is defined */
 
       /* Swap buffers */
-      swapfunc();
-      
+      if(swapfunc) {
+        swapfunc();
+      }
+
       /* Change eye */
       nvstusb_set_eye(ctx, eye);
     }
@@ -416,18 +406,21 @@ nvstusb_swap(
       } else {
         i_interval = 1;
       }
+
+      /* Swap interval */
       if(i_current_interval != i_interval) {
         glXSwapIntervalSGI(i_interval);
         i_current_interval = i_interval;
       }
-      
-      
+
       /* Swap buffers */
-      swapfunc();
-      
+      if(swapfunc) {
+        swapfunc();
+      }
+
       /* Change eye */
       nvstusb_set_eye(ctx, eye);
-      
+
     }
     break;
   default:
@@ -486,3 +479,45 @@ nvstusb_get_keys(
   } 
 }
 
+/* Refresh rate calculation */
+static void nvstusb_print_refresh_rate(void)
+{
+  static int i_it = 0;
+  static uint64_t i_last = 0;
+  static uint64_t i_first = 0;
+  static uint64_t i_acc_var = 0;
+  double f_mean, f_var;
+
+  /* First frame */
+  if(i_it == 0) {
+    struct timespec s_tmp;
+    clock_gettime(CLOCK_REALTIME, &s_tmp);
+    i_first = (uint64_t)s_tmp.tv_sec*1000000+(uint64_t)s_tmp.tv_nsec/1000;
+    i_last = i_first;
+    f_mean = 0;
+    f_var = 0;
+
+  } else {
+    struct timespec s_tmp;
+    clock_gettime(CLOCK_REALTIME, &s_tmp);
+    uint64_t i_new = (uint64_t)s_tmp.tv_sec*1000000+(uint64_t)s_tmp.tv_nsec/1000;
+    /* Update average */
+    f_mean = (double)(i_new-i_first)/(i_it);
+    /* Calculate variance */
+    i_acc_var += pow((double)(i_new-i_last)-f_mean, 2);
+
+    //if((i_new-i_last) -f_mean > 300) {
+    //  fprintf(stderr,"nvstusb: Error:%f\n",(i_new-i_last) -f_mean );
+    //}
+    /* std dev */
+    f_var = (double)sqrt(i_acc_var/i_it);
+    i_last = i_new;
+
+    /* Display each 512 frame */
+    if(i_it % 512 == 0) {
+      fprintf(stderr,"nvstusb: frame:%d (%0.2f s) mean: %f Hz (%0.2f us) sqrt(var): %0.2f us (%0.1f %%)\n",i_it,f_mean*i_it/1000000.0, 1000000/f_mean, f_mean, f_var, 100.0*f_var/f_mean);
+    }
+  }
+  /* Increment frame counter */
+  i_it++;
+}

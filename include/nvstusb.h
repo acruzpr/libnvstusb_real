@@ -10,7 +10,7 @@ struct nvstusb_context;
 enum nvstusb_eye {
   nvstusb_left = 0,
   nvstusb_right,
-  nvstusb_quad
+  nvstusb_quad,
 };
 
 struct nvstusb_keys {
@@ -24,3 +24,4 @@ void nvstusb_deinit(struct nvstusb_context *ctx);
 void nvstusb_set_rate(struct nvstusb_context *ctx, float rate);
 void nvstusb_swap(struct nvstusb_context *ctx, enum nvstusb_eye eye, void (*swapfunc)());
 void nvstusb_get_keys(struct nvstusb_context *ctx, struct nvstusb_keys *keys);
+void nvstusb_invert_eyes(struct nvstusb_context *ctx);
