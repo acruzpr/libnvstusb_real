@@ -38,6 +38,7 @@ void (*pf_draw) (int in_i_eye) = NULL;
 /* Config */
 int config_verbose = 0;
 int config_stereo = 0;
+int config_swap = 1;
 char * config_file = NULL;
 
 
@@ -128,9 +129,8 @@ void drawNoImage(int in_i_eye) {
 
 /* GLUT Idle */
 void idle() {
-
-  /* GL_STEREO case */
-  if(config_stereo) {
+  switch(config_stereo) {
+  case 1:
     /* Draw Left Buffer */
     glDrawBuffer(GL_BACK_LEFT);
     pf_draw(0);
@@ -138,46 +138,71 @@ void idle() {
     glDrawBuffer(GL_BACK_RIGHT);
     pf_draw(1);
 
-    if(config_stereo == 1) {
+    if(config_swap) {
       /* Send double swap (quad buffering) */
       nvstusb_swap(ctx, nvstusb_quad, glutSwapBuffers);
     } else {
-      /* Stereo thread is running, No need to use nvstusb_swap() */
-      glutSwapBuffers();
+    	glutSwapBuffers();
     }
+    break;
 
-    /* default case */
-  } else {
-    static int i_counter = 0;
+  case 2:
+    /* Draw Left Buffer */
+    glDrawBuffer(GL_BACK_LEFT);
+    pf_draw(0);
+    /* Draw right buffer */
+    glDrawBuffer(GL_BACK_RIGHT);
+    pf_draw(1);
 
-    /* Draw either left or right depending on counter */
-    glDrawBuffer(GL_BACK);
-    pf_draw(i_counter&1);
+    /* Stereo thread is running, No need to use nvstusb_swap() */
+    glutSwapBuffers();
+    break;
 
-    /* Send swap command */
-    nvstusb_swap(ctx, i_counter&1, glutSwapBuffers);
-    i_counter++;
+  case 0:
+    {
+      static int i_counter = 0;
+
+      /* Draw either left or right depending on counter */
+      glDrawBuffer(GL_BACK);
+      pf_draw(i_counter&1);
+
+      /* Send swap command */
+      if(config_swap) {
+        nvstusb_swap(ctx, i_counter&1, glutSwapBuffers);
+      } else {
+    	  glutSwapBuffers();
+      }
+
+      i_counter++;
+    }
+    break;
   }
 
-  /* Gather controler status */
-  struct nvstusb_keys k;
-  nvstusb_get_keys(ctx, &k);
-  if (k.toggled3D && (config_stereo != 2)) {
-    inverteyes = !inverteyes;
+  if(config_swap) {
+    /* Gather controler status */
+    struct nvstusb_keys k;
+    nvstusb_get_keys(ctx, &k);
+    if (k.toggled3D && (config_stereo != 2)) {
+      inverteyes = !inverteyes;
+    }
+
+    if (k.deltaWheel) {
+      depth += 0.01 * k.deltaWheel;
+    }
   }
 
   /* Display refresh rate info */
   print_refresh_rate();
 
-  if (k.deltaWheel) {
-    depth += 0.01 * k.deltaWheel;
-  }
+
 }
 
 /* Usage */
 void usage(void) {
   fprintf(stderr, "example [options] [stereoscopic image]\n");
   fprintf(stderr, "\t--stereo\t\tEnable Stereo GL\n");
+  fprintf(stderr, "\t--stereothread\t\tEnable Stereo GL, swap performed in other thread\n");
+  fprintf(stderr, "\t--noswap\t\t Disable USB swap\n");
   fprintf(stderr, "\t--debug \t\tEnable Debug\n");
 }
 
@@ -194,6 +219,7 @@ int main(int argc, char **argv)
       {"verbose",      no_argument,       &config_verbose, 1},
       {"stereo",       no_argument,       &config_stereo,  1},
       {"stereothread", no_argument,       &config_stereo,  2},
+      {"noswap",no_argument,       &config_swap,  0},
       {NULL, 0, 0, 0}
     };
 
@@ -255,24 +281,26 @@ int main(int argc, char **argv)
   }
 
   /* Initialize libnvstusb */
-  ctx = nvstusb_init();
+  if(config_swap) {
+    ctx = nvstusb_init();
 
-  if (0 == ctx) {
-    fprintf(stderr, "could not initialize NVIDIA 3D Stereo Controller, aborting\n");
-    exit(EXIT_FAILURE);
-  }
+    if (0 == ctx) {
+      fprintf(stderr, "could not initialize NVIDIA 3D Stereo Controller, aborting\n");
+      exit(EXIT_FAILURE);
+    }
 
-  /* Get Vsync rate from X11 */
-  {
-    static Display *dpy;
-    dpy = XOpenDisplay(0);
-    double displayNumber=DefaultScreen(dpy);
-    XF86VidModeModeLine modeline;
-    int pixelclock;
-    XF86VidModeGetModeLine( dpy, displayNumber, &pixelclock, &modeline );
-    double frameRate=(double) pixelclock*1000/modeline.htotal/modeline.vtotal;
-    printf("Vertical Refresh rate:%f Hz\n",frameRate);
-    nvstusb_set_rate(ctx, frameRate);
+    /* Get Vsync rate from X11 */
+    {
+      static Display *dpy;
+      dpy = XOpenDisplay(0);
+      double displayNumber=DefaultScreen(dpy);
+      XF86VidModeModeLine modeline;
+      int pixelclock;
+      XF86VidModeGetModeLine( dpy, displayNumber, &pixelclock, &modeline );
+      double frameRate=(double) pixelclock*1000/modeline.htotal/modeline.vtotal;
+      printf("Vertical Refresh rate:%f Hz\n",frameRate);
+      nvstusb_set_rate(ctx, frameRate);
+    }
   }
 
   /* Case: stereoscopic image */
@@ -312,7 +340,7 @@ int main(int argc, char **argv)
   }
 
   /* If thread stereo selected, start nvstusb thread */
-  if(config_stereo == 2) {
+  if((config_stereo == 2) && config_swap) {
     nvstusb_start_stereo_thread(ctx);
   }
 
@@ -322,8 +350,10 @@ int main(int argc, char **argv)
   /* Main Loop */
   glutMainLoop();
 
-  /* Denit libnvstusb */
-  nvstusb_deinit(ctx);
+  if(config_swap) {
+    /* Denit libnvstusb */
+    nvstusb_deinit(ctx);
+  }
 
   return EXIT_SUCCESS;
 }
