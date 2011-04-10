@@ -1,11 +1,11 @@
 #!/bin/sh
-svn co https://libnvstusb.svn.sourceforge.net/svnroot/libnvstusb libnvstusb.pack
-pushd libnvstusb.pack
+#svn co https://libnvstusb.svn.sourceforge.net/svnroot/libnvstusb libnvstusb.pack
+#pushd libnvstusb.pack
 # Edit debian/changelog with dch
 dch -i
 #Generate source package
-DIST=maverick svn-buildpackage --svn-builder="debuild -i\.git -I.git" -S -sa --svn-ignore-new
-popd
+DIST=maverick svn-buildpackage --svn-builder="debuild" -S -sa --svn-ignore-new
+#popd
 #PUSH package to PPA: dput ppa:johaahn/libnvstusb ../build-area/libnvstusb_xxxxx_source.changes
 
 # WITH GIT:
