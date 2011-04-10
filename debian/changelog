@@ -1,6 +1,9 @@
-libnvstusb (0.0.7-1ubuntu1) maverick; urgency=low
+libnvstusb (0.0.7-4ubuntu1) maverick; urgency=low
 
-  * Added stereo binary
+  * Added nvstusb-quad binary
+  * Added nvstusb-extractfw binary
+  * Added nvstusb-vsync binary
+  * Added firmware path to nvstusb_init()
 
  -- Johann Baudy <johann.baudy@gnu-log.net>  Sat, 09 Apr 2011 17:26:41 +0200
 

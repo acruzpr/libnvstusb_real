@@ -282,7 +282,7 @@ int main(int argc, char **argv)
 
   /* Initialize libnvstusb */
   if(config_swap) {
-    ctx = nvstusb_init();
+    ctx = nvstusb_init(NULL);
 
     if (0 == ctx) {
       fprintf(stderr, "could not initialize NVIDIA 3D Stereo Controller, aborting\n");

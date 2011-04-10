@@ -116,7 +116,6 @@ int main(int argc, char **argv) {
   glutCreateWindow("3dv");
   glutIdleFunc(drawNoImage);
 
-  printf("%d\n", argc);
   if(argc < 2) {
     glXGetVideoSyncSGI = (PFNGLXGETVIDEOSYNCSGIPROC)glXGetProcAddress("glXGetVideoSyncSGI");
     glXWaitVideoSyncSGI = (PFNGLXWAITVIDEOSYNCSGIPROC)glXGetProcAddress("glXWaitVideoSyncSGI");

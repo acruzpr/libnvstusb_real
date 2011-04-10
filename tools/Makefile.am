@@ -1,6 +1,9 @@
-bin_PROGRAMS = extractfw test_vsync
-extractfw_SOURCES = extractfw.c
-extractfw_CFLAGS = -I@top_srcdir@/include 
-test_vsync_SOURCES = test_vsync.c
-test_vsync_CFLAGS = -I@top_srcdir@/include ${GL_CFLAGS}
-test_vsync_LDADD = ${GL_LIBS} -lglut
+bin_PROGRAMS = nvstusb-extractfw nvstusb-vsync nvstusb-quad
+nvstusb_extractfw_SOURCES = extractfw.c
+nvstusb_extractfw_CFLAGS = -I@top_srcdir@/include 
+nvstusb_vsync_SOURCES = test_vsync.c
+nvstusb_vsync_CFLAGS = -I@top_srcdir@/include ${GL_CFLAGS}
+nvstusb_vsync_LDADD = ${GL_LIBS} -lglut
+nvstusb_quad_SOURCES = nvstusb_quad.c
+nvstusb_quad_CFLAGS = -I@top_srcdir@/include ${ILUT_CFLAGS} ${IL_CFLAGS}
+nvstusb_quad_LDADD = @top_builddir@/src/libnvstusb.la ${ILUT_LIBS} ${IL_LIBS} -lglut ${LIBUSB_LIBS} ${X11_LIBS}

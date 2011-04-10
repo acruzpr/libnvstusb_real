@@ -28,7 +28,10 @@
 struct nvstusb_context *ctx = 0;
 
 /* USAGE : sudo chrt -r -p 99 nvstusb */
-
+/* Usage */
+void usage(void) {
+  fprintf(stderr, "nvstusb-quad [firmware]\n");
+}
 /* Main function */
 int main(int argc, char **argv) 
 {
@@ -36,6 +39,43 @@ int main(int argc, char **argv)
   Display *dpy;
   Window win;
   uint i_swap_cnt = 0;
+  char const * config_fw = NULL;
+
+  /* Getopt section */
+  struct option long_options[] =
+  {
+    /* These options set a flag. */
+    {NULL, 0, 0, 0}
+  };
+
+  while (1)
+  {
+    int c;
+    /* getopt_long stores the option index here. */
+    int option_index = 0;
+
+    c = getopt_long (argc, argv, "",
+        long_options, &option_index);
+
+    /* Detect the end of the options. */
+    if (c == -1)
+      break;
+
+    switch (c)
+    {
+    case '?':
+    default:
+      usage();
+      exit(EXIT_FAILURE);
+    }
+  }
+
+  if (optind < argc)
+  {
+    while (optind < argc) {
+      config_fw = argv[optind++];
+    }
+  }
 
   /* Openning X display */
   dpy = XOpenDisplay(0);
@@ -80,7 +120,7 @@ int main(int argc, char **argv)
 
 
   /* Initialize libnvstusb */
-  ctx = nvstusb_init();
+  ctx = nvstusb_init(config_fw);
   if (0 == ctx) {
     fprintf(stderr, "could not initialize NVIDIA 3D Stereo Controller, aborting\n");
     exit(EXIT_FAILURE);

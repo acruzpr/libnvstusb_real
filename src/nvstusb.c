@@ -84,14 +84,13 @@ struct nvstusb_context {
 
 /* initialize controller */
 struct nvstusb_context *
-nvstusb_init(void) 
+nvstusb_init(char const * fw) 
 {
-
   /* initialize usb */
   if (!nvstusb_usb_init()) return 0;
 
   /* open device */
-  struct nvstusb_usb_device *dev = nvstusb_usb_open_device("nvstusb.fw");
+  struct nvstusb_usb_device *dev = nvstusb_usb_open_device(fw? fw : "nvstusb.fw");
   if (0 == dev) return 0;
 
   /* allocate context */

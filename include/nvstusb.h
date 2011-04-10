@@ -19,7 +19,7 @@ struct nvstusb_keys {
   int  toggled3D;
 };
 
-struct nvstusb_context *nvstusb_init();
+struct nvstusb_context *nvstusb_init(char const * fw);
 void nvstusb_deinit(struct nvstusb_context *ctx);
 void nvstusb_set_rate(struct nvstusb_context *ctx, float rate);
 void nvstusb_swap(struct nvstusb_context *ctx, enum nvstusb_eye eye, void (*swapfunc)());
