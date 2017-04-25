@@ -4,11 +4,11 @@
 AC_PREREQ([2.63])
 AC_INIT([libnvstub], [0.1])
 AM_INIT_AUTOMAKE([-Wall -Werror foreign])
-AC_PROG_INSTALL
-AM_PROG_AR
 
 # Checks for programs.
+AM_PROG_AR
 AC_PROG_LIBTOOL
+AC_PROG_INSTALL
 
 # Checks for libraries.
 PKG_CHECK_MODULES([LIBUSB], [libusb-1.0 >= 1.0.0]) 
