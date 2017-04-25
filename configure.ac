@@ -5,6 +5,7 @@ AC_PREREQ([2.63])
 AC_INIT([libnvstub], [0.1])
 AM_INIT_AUTOMAKE([-Wall -Werror foreign])
 AC_PROG_INSTALL
+AM_PROG_AR
 
 # Checks for programs.
 AC_PROG_LIBTOOL
