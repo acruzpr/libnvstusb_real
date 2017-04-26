@@ -22,8 +22,9 @@ If you dare to try this out, you will need the following things first:
 - The firmware extracted from the windows driver (see below)
 
 - libusb
+- libdevil
 - GLUT
-- gcc and make
+- gcc, make and automake
 - XF86vmode
 
 
@@ -33,6 +34,15 @@ Building and running
 To build everything just type
   ./configure
   make
+
+To install the library type
+  sudo make install
+
+If you checked out a copy from SVN you will have to type
+  ./autogen.sh
+  ./configure
+  make
+  sudo make install
 
 To try it out type
 
@@ -85,5 +95,4 @@ To extract the firmware simply run
   ./tools/extractfw path-to-nvstusb.sys
 
 and hope everything works just fine. ;)
-
 
